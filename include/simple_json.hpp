@@ -18,6 +18,9 @@
 #include <vector>
 #include <map>
 #include <utility>
+#include <sstream>
+
+#define INDENT_AMT 4
 
 #ifdef DEBUG
 #include <iostream>
@@ -28,21 +31,22 @@ namespace simple_json
 class simple_json_array;
 class simple_json;
 
-std::string to_str(simple_json*);
-std::string to_str(simple_json_array*);
+std::string to_str(const simple_json*,const size_t,const size_t);
+std::string to_str(const simple_json_array*,const size_t,const size_t);
 
 struct json_type
 {
     enum {JSON_NULL,JSON_OBJECT,JSON_ARRAY,JSON_INT,JSON_BOOL,JSON_STRING}tag;
     union json_type_data {
-        simple_json *jsonObjectValue;
-        simple_json_array *jsonArrayValue;
+        const simple_json *jsonObjectValue;
+        const simple_json_array *jsonArrayValue;
         int intValue;
         bool booleanValue;
         std::string stringValue;
         json_type_data(){}
         ~json_type_data(){}
     } data;
+
 
     json_type& operator=(const json_type& rhs)
     {
@@ -89,16 +93,16 @@ struct json_type
         return *this;
     }
 
-    std::string to_str()const 
+    std::string to_str(const size_t current_indentation,const size_t indent_amt=0)const 
     {
         switch(tag)
         {
             case JSON_NULL:
             return "null";
             case JSON_OBJECT:
-            return ::simple_json::to_str(data.jsonObjectValue);
+            return ::simple_json::to_str(data.jsonObjectValue,current_indentation,indent_amt);
             case JSON_ARRAY:
-            return ::simple_json::to_str(data.jsonArrayValue);
+            return ::simple_json::to_str(data.jsonArrayValue,current_indentation,indent_amt);
             case JSON_INT:
             return std::to_string(data.intValue);
             case JSON_BOOL:
@@ -109,13 +113,13 @@ struct json_type
 
     json_type():tag(JSON_NULL){}
 
-    json_type(simple_json* val):tag(JSON_OBJECT)
+    json_type(const simple_json& val):tag(JSON_OBJECT)
     {
-        data.jsonObjectValue = val;
+        data.jsonObjectValue = &val;
     }
-    json_type(simple_json_array* val):tag(JSON_ARRAY)
+    json_type(const simple_json_array& val):tag(JSON_ARRAY)
     {
-        data.jsonArrayValue = val;
+        data.jsonArrayValue = &val;
     }
     json_type(int val):tag(JSON_INT)
     {
@@ -134,7 +138,7 @@ struct json_type
 class simple_json_array
 {
     public:
-    std::string to_str()const 
+    std::string to_str(const size_t current_indentation,const size_t indent_amt=0)const 
     {
         return "array()";
     }
@@ -158,32 +162,68 @@ public:
         return *this;
     }
 
+    bool insert(const std::string& str, const simple_json& json)
+    {
+        members[str] = json_type(json);
+        return true;
+    }
+
     bool insert(const std::string &str, const json_type &json)
     {
         members[str] = json;
         return true;
     }
 
-    std::string to_str() const
+    std::string to_str(size_t current_indentation,const size_t indent_amt = 0) const
     {
+        std::stringstream ss;
+        for(auto i = 0;i<current_indentation;i++) ss << ' ';
+        ss << "{\n";
+        current_indentation += indent_amt;
         for(const auto&[key,json] : members)
         {
-            std::cout << key << ":";
-            std::cout << json.to_str() << '\n';
+            switch(json.tag)
+            {
+                case json_type::JSON_OBJECT:
+                {
+                    for(auto i = 0;i<current_indentation;i++) ss << ' ';
+                    ss << '"' << key << "\": \n" << json.to_str(current_indentation,indent_amt) << '\n';
+                    break;
+                    break;
+                }
+                case json_type::JSON_INT:
+                case json_type::JSON_BOOL:
+                case json_type::JSON_STRING:
+                {
+                    for(auto i = 0;i<current_indentation;i++) ss << ' ';
+                    ss << '"' << key << "\": " << json.to_str(current_indentation) << ",\n";
+                    break;
+                }
+            }
         }
+        for(auto i = 0;i<current_indentation-indent_amt;i++) ss << ' ';
+        if(current_indentation>indent_amt)
+        {
+            ss << "},\n";
+        }else
+        {
+            ss << "}\n";
+        }
+        
+        return ss.str();
     }
 
 private:
     std::map<std::string, json_type> members;
 };
 
-std::string to_str(simple_json* json)
+std::string to_str(const simple_json* json,const size_t current_indentation,const size_t indent_amt=0)
 {
-    return json->to_str();
+    return json->to_str(current_indentation,indent_amt);
 }
-std::string to_str(simple_json_array* json)
+std::string to_str(const simple_json_array* json, const size_t current_indentation,const size_t indent_amt=0)
 {
-    return json->to_str();
+    return json->to_str(current_indentation,indent_amt);
 }
 
 
@@ -191,7 +231,12 @@ simple_json parse(const std::string &jsonStr)
 {
     simple_json json;
     json.insert("test", 13);
-    std::cout << json.to_str();
+    json.insert("test2", "hello");
+    simple_json json2;
+    json2.insert("foo",1337);
+    json.insert("alpha",10000000);
+    json.insert("json2", json2);
+    std::cout << json.to_str(0,4);
     return json;
 }
 

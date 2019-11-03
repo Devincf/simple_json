@@ -1,250 +1,306 @@
 /**
  * @file simple_json.hpp
- * @author Devin-Can Firat (devinc.firat@gmail.com)
+ * @author Devin Can Firat (you@domain.com)
  * @brief 
  * @version 0.1
- * @date 2019-06-14 05:04
+ * @date 2019-10-25
  * 
  * @copyright Copyright (c) 2019
  * 
  */
 
-#ifndef SIMPLE_JSON_HPP
-#define SIMPLE_JSON_HPP
+#ifndef SIMPLE_JSON_HPPm_
+#define SIMPLE_JSON_HPPm_
+
+#define JSON_INDENT_AMOUNT 4
 
 #define DEBUG
 
-#include <string>
-#include <vector>
-#include <map>
-#include <utility>
-#include <sstream>
-
-#define INDENT_AMT 4
-
 #ifdef DEBUG
 #include <iostream>
+#define deb(A) std::cout << A << '\n';
+#else
+#define deb(A)
 #endif
+
+#include <map>
+#include <string>
+#include <variant>
+#include <vector>
+#include <sstream>
+#include <any>
+
+#include <cstdlib>
+#include <cxxabi.h>
+template <typename T>
+std::string type_name()
+{
+    int status;
+    std::string tname = typeid(T).name();
+    char *demangled_name = abi::__cxa_demangle(tname.c_str(), NULL, NULL, &status);
+    if (status == 0)
+    {
+        tname = demangled_name;
+        std::free(demangled_name);
+    }
+    return tname;
+}
 
 namespace simple_json
 {
-class simple_json_array;
-class simple_json;
 
-std::string to_str(const simple_json*,const size_t,const size_t);
-std::string to_str(const simple_json_array*,const size_t,const size_t);
+class json;
 
-struct json_type
+std::string indentation_string(const int indent)
 {
-    enum {JSON_NULL,JSON_OBJECT,JSON_ARRAY,JSON_INT,JSON_BOOL,JSON_STRING}tag;
-    union json_type_data {
-        const simple_json *jsonObjectValue;
-        const simple_json_array *jsonArrayValue;
-        int intValue;
-        bool booleanValue;
-        std::string stringValue;
-        json_type_data(){}
-        ~json_type_data(){}
-    } data;
+    return std::string(indent, ' ');
+}
 
+template <typename T>
+constexpr int8_t type_to_int() { return -1; }
 
-    json_type& operator=(const json_type& rhs)
-    {
-        switch(rhs.tag)
-        {
-            case JSON_OBJECT:
-            {
-                tag = JSON_OBJECT;
-                data.jsonObjectValue = rhs.data.jsonObjectValue;
-                break;
-            }
-            case JSON_ARRAY:
-            {
-                tag = JSON_ARRAY;
-                data.jsonArrayValue = rhs.data.jsonArrayValue;
-                break;
-            }
-            case JSON_INT:
-            {
-                tag = JSON_INT;
-                data.intValue = rhs.data.intValue;
-                break;
-            }
-            case JSON_BOOL:
-            {
-                tag = JSON_BOOL;
-                data.booleanValue = rhs.data.booleanValue;
-                break;
-            }
-            case JSON_STRING:
-            {
-                tag = JSON_STRING;
-                data.stringValue = rhs.data.stringValue;
-                break;
-            }
-            case JSON_NULL:
-            {
-                tag = JSON_NULL;
-                break;
-            }
-            default:
-                throw std::runtime_error("Unknown JSON tag");
-        }
-        return *this;
-    }
+template <>
+constexpr int8_t type_to_int<int>() { return 0; }
+template <>
+constexpr int8_t type_to_int<double>() { return 1; }
+template <>
+constexpr int8_t type_to_int<bool>() { return 2; }
+template <>
+constexpr int8_t type_to_int<std::string>() { return 4; }
+template <>
+constexpr int8_t type_to_int<json>() { return 8; }
 
-    std::string to_str(const size_t current_indentation,const size_t indent_amt=0)const 
-    {
-        switch(tag)
-        {
-            case JSON_NULL:
-            return "null";
-            case JSON_OBJECT:
-            return ::simple_json::to_str(data.jsonObjectValue,current_indentation,indent_amt);
-            case JSON_ARRAY:
-            return ::simple_json::to_str(data.jsonArrayValue,current_indentation,indent_amt);
-            case JSON_INT:
-            return std::to_string(data.intValue);
-            case JSON_BOOL:
-            return data.booleanValue? "true": "false";
-        }
-        return "unknown";
-    }
-
-    json_type():tag(JSON_NULL){}
-
-    json_type(const simple_json& val):tag(JSON_OBJECT)
-    {
-        data.jsonObjectValue = &val;
-    }
-    json_type(const simple_json_array& val):tag(JSON_ARRAY)
-    {
-        data.jsonArrayValue = &val;
-    }
-    json_type(int val):tag(JSON_INT)
-    {
-        data.intValue = val;
-    }
-    json_type(bool val):tag(JSON_BOOL)
-    {
-        data.booleanValue = val;
-    }
-    json_type(const std::string& val):tag(JSON_STRING)
-    {
-        data.stringValue = val;
-    }
+enum json_type : int8_t
+{
+    JSON_TYPE_INT = 0,
+    JSON_TYPE_DOUBLE = 1,
+    JSON_TYPE_BOOL = 2,
+    JSON_TYPE_STRING = 4,
+    JSON_TYPE_OBJ = 8,
+    JSON_TYPE_ARR = 16
 };
 
-class simple_json_array
+class wrong_type_exception : public std::exception
 {
-    public:
-    std::string to_str(const size_t current_indentation,const size_t indent_amt=0)const 
-    {
-        return "array()";
-    }
 private:
-    std::vector<json_type> members;
-};
+    json_type m_type;
 
-class simple_json
-{
 public:
-    json_type &operator[](const std::string &objname)
+    wrong_type_exception(json_type type) : m_type(type) {}
+    wrong_type_exception(const int8_t type) : m_type(static_cast<json_type>(type)) {}
+    const char *what()
     {
-        auto ret = members.find(objname);
-        if (ret == members.end())
-            throw std::runtime_error("Key not found");
-        return ret->second;
+        std::string err = "conversion to " + std::to_string(m_type) + " failed";
+        return err.c_str();
+    }
+};
+
+class key_not_exist_exception : public std::exception
+{
+private:
+    std::string m_key;
+
+public:
+    key_not_exist_exception(std::string key) : m_key(key) {}
+    const char *what()
+    {
+        std::string err = m_key + " doesnt exist";
+        return err.c_str();
+    }
+};
+
+std::string json_to_string(const json json, const int indent_amount,const int current_indent);
+std::string any_to_string(std::any any, const int indent_amount, const int current_indent);
+
+class json_value
+{
+
+private:
+    json_type m_type;
+    std::any m_value;
+
+public:
+    json_value(json_type type, std::any val) : m_type(type), m_value(val) {}
+
+    json_value() = default;
+    json_value(const json_value &rhs)
+    {
+        *this = rhs;
     }
 
-    simple_json &operator=(const json_type &type)
+
+    inline json_value &operator[](const std::string &key)
     {
         return *this;
     }
 
-    bool insert(const std::string& str, const simple_json& json)
+    template <typename T>
+    explicit operator T()
     {
-        members[str] = json_type(json);
-        return true;
-    }
-
-    bool insert(const std::string &str, const json_type &json)
-    {
-        members[str] = json;
-        return true;
-    }
-
-    std::string to_str(size_t current_indentation,const size_t indent_amt = 0) const
-    {
-        std::stringstream ss;
-        for(auto i = 0;i<current_indentation;i++) ss << ' ';
-        ss << "{\n";
-        current_indentation += indent_amt;
-        for(const auto&[key,json] : members)
+        constexpr int8_t t = type_to_int<T>();
+        if constexpr (t != -1)
         {
-            switch(json.tag)
+            if (m_type == t)
             {
-                case json_type::JSON_OBJECT:
-                {
-                    for(auto i = 0;i<current_indentation;i++) ss << ' ';
-                    ss << '"' << key << "\": \n" << json.to_str(current_indentation,indent_amt) << '\n';
-                    break;
-                    break;
-                }
-                case json_type::JSON_INT:
-                case json_type::JSON_BOOL:
-                case json_type::JSON_STRING:
-                {
-                    for(auto i = 0;i<current_indentation;i++) ss << ' ';
-                    ss << '"' << key << "\": " << json.to_str(current_indentation) << ",\n";
-                    break;
-                }
+                return std::any_cast<T>(m_value);
             }
+            throw wrong_type_exception(t);
         }
-        for(auto i = 0;i<current_indentation-indent_amt;i++) ss << ' ';
-        if(current_indentation>indent_amt)
-        {
-            ss << "},\n";
-        }else
-        {
-            ss << "}\n";
-        }
-        
-        return ss.str();
+        deb("type == -1")
+            deb(type_name<T>())
     }
 
-private:
-    std::map<std::string, json_type> members;
+    template <typename T>
+    json_value &operator=(const T &rhs)
+    {
+        constexpr int8_t t = type_to_int<T>();
+        if constexpr (t != -1)
+        {
+            if (t != m_type)
+                    m_type = static_cast<json_type>(t);
+                m_value = rhs;
+                return *this;
+        }
+        return *this;
+    }
+
+    template <std::size_t N>
+    json_value &operator=(const char (&rhs)[N])
+    {
+        if (m_type != 4)
+            m_type = JSON_TYPE_STRING;
+        m_value = std::string(rhs);
+        return *this;
+    }
+
+    template <typename T>
+    json_value &operator=(const T &&rhs)
+    {
+        constexpr int8_t t = type_to_int<T>();
+        if constexpr (t != -1)
+        {
+            if (t != m_type)
+                m_type = static_cast<json_type>(t);
+            m_value = rhs;
+            return *this;
+        }
+        deb("type == -1")
+            deb(type_name<T>()) return *this;
+    }
+
+    std::string to_str(const int indent_amount, const int current_indent)
+    {
+        switch (m_type)
+        {
+        case JSON_TYPE_INT:
+            return std::to_string(std::any_cast<int>(m_value));
+        case JSON_TYPE_DOUBLE:
+            return std::to_string(std::any_cast<double>(m_value));
+        case JSON_TYPE_BOOL:
+            return std::any_cast<bool>(m_value) ? "true" : "false";
+        case JSON_TYPE_STRING:
+            return '"' + std::any_cast<std::string>(m_value) + '"';
+        case JSON_TYPE_OBJ:
+        {
+            return any_to_string(m_value, indent_amount, current_indent + indent_amount);
+        }
+        default:
+            return "\"\"";
+        }
+    }
 };
 
-std::string to_str(const simple_json* json,const size_t current_indentation,const size_t indent_amt=0)
+class json_object
 {
-    return json->to_str(current_indentation,indent_amt);
-}
-std::string to_str(const simple_json_array* json, const size_t current_indentation,const size_t indent_amt=0)
+private:
+    std::map<std::string, json_value> m_data;
+
+public:
+    inline json_value &operator[](const std::string &key)
+    {
+        auto it = m_data.find(key);
+        if (it == m_data.end())
+            throw key_not_exist_exception(key);
+
+        return m_data[key];
+    }
+
+    template <typename T>
+    void insert(const std::string &key, const T &val)
+    {
+
+        m_data.insert({key, json_value(static_cast<json_type>(type_to_int<T>()), val)});
+    }
+
+    std::map<std::string, json_value> get_data() const 
+    {
+        return m_data;
+    }
+};
+
+class json
 {
-    return json->to_str(current_indentation,indent_amt);
+private:
+    std::map<std::string, json_value> m_data;
+
+public:
+    inline json_value &operator[](const std::string &key)
+    {
+        auto it = m_data.find(key);
+        if (it == m_data.end())
+            throw key_not_exist_exception(key);
+
+        return m_data[key];
+    }
+
+    template <typename T>
+    void insert(const std::string &key, const T &val)
+    {
+        m_data.insert({key, json_value(static_cast<json_type>(type_to_int<T>()), val)});
+    }
+
+    std::map<std::string, json_value> get_data() const 
+    {
+        return m_data;
+    }
+
+    inline std::string to_str()
+    {
+        return to_str(JSON_INDENT_AMOUNT);
+    }
+
+    std::string to_str(const int indent_amount)
+    {
+        return json_to_string(*this, indent_amount, 0);
+    }
+
+};
+
+std::string json_to_string(const json json, const int indent_amount, const int current_indent)
+{
+    std::stringstream ss;
+    ss << "{\n";
+    int loop_counter = 0;
+    auto data = json.get_data();
+    for (auto &[key, val] : data)
+    {
+        ss << indentation_string(current_indent + indent_amount) << '"' << key << "\": " << val.to_str(indent_amount, current_indent);
+        if (++loop_counter < data.size())
+        {
+            ss << ',';
+        }
+        ss << '\n';
+    }
+    ss << indentation_string(current_indent) << '}';
+    return ss.str();
 }
 
-
-simple_json parse(const std::string &jsonStr)
+std::string any_to_string(std::any any, const int indent_amount, const int current_indent)
 {
-    simple_json json;
-    json.insert("test", 13);
-    json.insert("test2", "hello");
-    simple_json json2;
-    json2.insert("foo",1337);
-    json.insert("alpha",10000000);
-    json.insert("json2", json2);
-    std::cout << json.to_str(0,4);
-    return json;
-}
-
-simple_json parse(std::string &&jsonStr)
-{
-    return parse(jsonStr);
+    return json_to_string(std::any_cast<json>(any),indent_amount, current_indent );
 }
 
 } // namespace simple_json
 
 #endif
+

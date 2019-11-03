@@ -54,8 +54,7 @@ TEST_CASE( "Json Object created"){
 
     object.insert("object", another);
 
-    another["int"] = 1111;
-    object["object"]["int"] = 8888;
+    (std::string) another["int"] = "hello";
 
     deb(object.to_str())
 }

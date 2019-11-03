@@ -83,34 +83,47 @@ enum json_type : int8_t
 class wrong_type_exception : public std::exception
 {
 private:
-    json_type m_type;
+    std::string m_msg;
 
 public:
-    wrong_type_exception(json_type type) : m_type(type) {}
-    wrong_type_exception(const int8_t type) : m_type(static_cast<json_type>(type)) {}
-    const char *what()
+    wrong_type_exception(json_type type) : m_msg("conversion to " + std::to_string(type) + " failed") {}
+    wrong_type_exception(const int8_t type) : m_msg("conversion to " + std::to_string(static_cast<json_type>(type)) + " failed") {}
+    const char *what() const throw()
     {
-        std::string err = "conversion to " + std::to_string(m_type) + " failed";
-        return err.c_str();
+        return m_msg.c_str();
+    }
+};
+
+class primitive_type_access_exception : public std::exception
+{
+private:
+
+public:
+    primitive_type_access_exception() {}
+    const char *what() const throw()
+    {
+        return "Tried accessing the index of a primitive type";
     }
 };
 
 class key_not_exist_exception : public std::exception
 {
 private:
-    std::string m_key;
+    std::string m_msg;
 
 public:
-    key_not_exist_exception(std::string key) : m_key(key) {}
-    const char *what()
+    key_not_exist_exception(std::string key) : m_msg("key " + key+ " doesnt exist") {}
+    const char *what() const throw()
     {
-        std::string err = m_key + " doesnt exist";
-        return err.c_str();
+        return m_msg.c_str();
     }
 };
 
+class json_value;
+
 std::string json_to_string(const json json, const int indent_amount,const int current_indent);
 std::string any_to_string(std::any any, const int indent_amount, const int current_indent);
+json_value& get_json_value_from_any(std::any any, const std::string& key);
 
 class json_value
 {
@@ -128,10 +141,12 @@ public:
         *this = rhs;
     }
 
-
     inline json_value &operator[](const std::string &key)
     {
-        return *this;
+        if(m_type != JSON_TYPE_OBJ){
+            throw primitive_type_access_exception();
+        }
+        return get_json_value_from_any(m_value, key);
     }
 
     template <typename T>
@@ -275,6 +290,12 @@ public:
     }
 
 };
+
+
+json_value& get_json_value_from_any(std::any any, const std::string& key)
+{
+    return std::any_cast<json>(any)[key];
+}
 
 std::string json_to_string(const json json, const int indent_amount, const int current_indent)
 {
